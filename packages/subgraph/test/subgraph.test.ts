@@ -10,6 +10,7 @@ import {
     monthlyToSecondRate,
     subgraphRequest,
     toBN,
+    waitUntilBlockIndexed,
 } from "./helpers/helpers";
 import {
     IAccountTokenSnapshot,
@@ -146,22 +147,18 @@ describe("Subgraph Tests", () => {
             const timeDelta = toBN(block.timestamp.toString()).sub(
                 toBN(tokenStats.updatedAtTimestamp)
             );
-            // TODO: This seems a little strange, I don't see why we need to
-            // add the streamedAmountDiff into the amountStreamed total
-            // investigate this further when we refactor these tests
-            const amountStreamed = toBN(
+            const streamedAmountSinceUpdatedAt = toBN(
+                tokenStats.totalOutflowRate
+            ).mul(timeDelta);
+            const totalAmountStreamedUntilUpdatedAt = toBN(
                 tokenStats.totalAmountStreamedUntilUpdatedAt
-            ).add(toBN(tokenStats.totalOutflowRate).mul(timeDelta));
-            const streamedAmountDiff = amountStreamed.sub(
-                toBN(tokenStats.totalAmountStreamedUntilUpdatedAt)
-            );
+            ).add(streamedAmountSinceUpdatedAt);
             tokenStatistics[daix.address.toLowerCase()] = {
                 ...tokenStats,
                 updatedAtBlockNumber: response.blockNumber!.toString(),
                 updatedAtTimestamp: block.timestamp.toString(),
-                totalAmountStreamedUntilUpdatedAt: amountStreamed
-                    .add(streamedAmountDiff)
-                    .toString(),
+                totalAmountStreamedUntilUpdatedAt:
+                    totalAmountStreamedUntilUpdatedAt.toString(),
             };
         }
     }
@@ -244,6 +241,7 @@ describe("Subgraph Tests", () => {
                 "Super fDAI Fake Token",
                 "fDAIx",
                 true,
+                false,
                 dai.address,
                 18
             );
@@ -255,7 +253,68 @@ describe("Subgraph Tests", () => {
                 "fDAI Fake Token",
                 "fDAI",
                 false,
+                false,
                 "",
+                18
+            );
+        });
+
+        it("Should be able to unlist and relist tokens", async () => {
+            const [deployer] = await ethers.getSigners();
+
+            // MUST WAIT until block indexed each time to catch up
+            // Unlist fDAIx
+            let txn = await framework.contracts.resolver
+                .connect(deployer)
+                .set("supertokens.test.fDAIx", ethers.constants.AddressZero);
+
+            let receipt = await txn.wait();
+            await waitUntilBlockIndexed(receipt.blockNumber);
+            await fetchTokenAndValidate(
+                daix.address.toLowerCase(),
+                "Super fDAI Fake Token",
+                "fDAIx",
+                false,
+                false,
+                dai.address,
+                18
+            );
+
+            // List fDAIx
+            txn = await framework.contracts.resolver
+                .connect(deployer)
+                .set("supertokens.test.fDAIx", daix.address);
+            receipt = await txn.wait();
+            await waitUntilBlockIndexed(receipt.blockNumber);
+            await fetchTokenAndValidate(
+                daix.address.toLowerCase(),
+                "Super fDAI Fake Token",
+                "fDAIx",
+                true,
+                false,
+                dai.address,
+                18
+            );
+        });
+
+        it("Should properly set native asset as listed SuperToken", async () => {
+            const [deployer, alice] = await ethers.getSigners();
+            const ETHx = await framework.loadNativeAssetSuperToken("ETHx");
+
+            // NOTE: we execute a transaction here with ETHx to get the name/symbol indexed on the subgraph
+            let txn = await ETHx.upgrade({
+                amount: ethers.utils.parseEther("100").toString(),
+            }).exec(deployer);
+            let receipt = await txn.wait();
+            await waitUntilBlockIndexed(receipt.blockNumber);
+
+            await fetchTokenAndValidate(
+                ETHx.address.toLowerCase(),
+                "Super ETH",
+                "ETHx",
+                true,
+                true,
+                ethers.constants.AddressZero,
                 18
             );
         });
@@ -436,73 +495,71 @@ describe("Subgraph Tests", () => {
         });
 
         it("Should liquidate a stream", async () => {
-            try {
-                const flowRate = monthlyToSecondRate(5000);
-                const sender = userAddresses[0];
-                const receiver = userAddresses[1];
-                const liquidator = userAddresses[2];
-                // update the global environment objects
-                updateGlobalObjects(
-                    await testFlowUpdated({
-                        ...getBaseCFAData(provider, daix.address),
-                        actionType: FlowActionType.Update,
-                        newFlowRate: flowRate,
-                        sender,
-                        flowOperator: sender,
-                        receiver,
-                    })
-                );
+            const flowRate = monthlyToSecondRate(5000);
+            const sender = userAddresses[0];
+            const receiver = userAddresses[1];
+            const liquidator = userAddresses[2];
+            // update the global environment objects
+            updateGlobalObjects(
+                await testFlowUpdated({
+                    ...getBaseCFAData(provider, daix.address),
+                    actionType: FlowActionType.Update,
+                    newFlowRate: flowRate,
+                    sender,
+                    flowOperator: sender,
+                    receiver,
+                })
+            );
 
-                // get balance of sender
-                let balanceOfSender = await daix.realtimeBalanceOf({
+            // get balance of sender
+            const balanceOfSender = await daix.balanceOf({
+                account: sender,
+                providerOrSigner: provider,
+            });
+            const senderSigner = await ethers.getSigner(sender);
+            const liquidatorSigner = await ethers.getSigner(liquidator);
+            const transferAmount = toBN(balanceOfSender)
+                // transfer total - 5 seconds of flow
+                .sub(toBN((flowRate * 5).toString()))
+                .toString();
+            await transferAndUpdate(transferAmount, senderSigner, liquidator);
+            // wait for flow to get drained
+            // cannot use time traveler due to
+            // subgraph constraints
+            let balanceOf;
+            do {
+                balanceOf = await daix.realtimeBalanceOf({
                     account: sender,
                     providerOrSigner: provider,
                 });
-                const senderSigner = await ethers.getSigner(sender);
-                const liquidatorSigner = await ethers.getSigner(liquidator);
-                const transferAmount = toBN(balanceOfSender.availableBalance)
-                    // transfer total - 5 seconds of flow
-                    .sub(toBN((flowRate * 5).toString()))
-                    .toString();
+                await asleep(1000);
+            } while (Number(balanceOf.availableBalance) >= 0);
 
-                await transferAndUpdate(
-                    transferAmount,
-                    senderSigner,
-                    liquidator
-                );
-                // wait for flow to get drained
-                // cannot use time traveler due to
-                // subgraph constraints
-                let balanceOf;
-                do {
-                    balanceOf = await daix.realtimeBalanceOf({
-                        account: sender,
-                        providerOrSigner: provider,
-                    });
-                    await asleep(1000);
-                } while (Number(balanceOf.availableBalance) >= 0);
+            updateGlobalObjects(
+                await testFlowUpdated({
+                    ...getBaseCFAData(provider, daix.address),
+                    actionType: FlowActionType.Delete,
+                    newFlowRate: 0,
+                    sender,
+                    flowOperator: liquidator,
+                    receiver,
+                    liquidator,
+                })
+            );
+            const balanceOfLiquidator = await daix.realtimeBalanceOf({
+                account: liquidator,
+                providerOrSigner: provider,
+            });
+            const returnAmount = toBN(balanceOfLiquidator.availableBalance).div(
+                toBN(2)
+            );
 
-                updateGlobalObjects(
-                    await testFlowUpdated({
-                        ...getBaseCFAData(provider, daix.address),
-                        actionType: FlowActionType.Delete,
-                        newFlowRate: 0,
-                        sender,
-                        flowOperator: liquidator,
-                        receiver,
-                        liquidator,
-                    })
-                );
-
-                // transfer balance back to sender
-                await transferAndUpdate(
-                    transferAmount,
-                    liquidatorSigner,
-                    sender
-                );
-            } catch (err) {
-                console.error(err);
-            }
+            // transfer balance back to sender
+            await transferAndUpdate(
+                returnAmount.toString(),
+                liquidatorSigner,
+                sender
+            );
         });
 
         it("Should be able to update flow operator permissions", async () => {

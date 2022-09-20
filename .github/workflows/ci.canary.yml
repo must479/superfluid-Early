@@ -1,19 +1,19 @@
-name: CI Canary
+name: CI | Canary (Dev)
 
 on:
   push:
     branches: ["dev"]
     paths:
-      - 'package.json'
-      - 'packages/**'
-      # - '**.md' commented-out because README updates should go to the packages
-      - '.github/workflows/ci.canary.yml'
+      - "package.json"
+      - "packages/**"
+      # - "**.md" commented-out because README updates should go to the packages
+      - ".github/workflows/ci.canary.yml"
+      - "codecov.yml"
+      - ".github/workflows/call.setup-deploy-and-test-local-subgraph.yml"
 
 jobs:
   essential-build-and-test:
     name: Build and test essential packages of dev branch
-
-    if: github.repository == 'superfluid-finance/protocol-monorepo'
 
     runs-on: ubuntu-latest
 
@@ -34,11 +34,11 @@ jobs:
           echo github.ref: ${{ github.ref }}
           echo github.head_ref: ${{ github.head_ref }}
           echo github.base_ref: ${{ github.base_ref }}
-
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node-version }}
+          cache: "yarn"
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -49,77 +49,53 @@ jobs:
         run: |
           yarn install --frozen-lockfile
           yarn lint
+          yarn --cwd packages/sdk-core generate-graphql-schema:dev
           yarn build
           yarn test
         env:
           POLYGON_MAINNET_PROVIDER_URL: ${{ secrets.POLYGON_MAINNET_PROVIDER_URL }}
+          SUBGRAPH_RELEASE_TAG: dev
 
-  subgraph-test:
-    name: Run test of subgraph on dev branch
+  test-subgraph:
+    uses: superfluid-finance/protocol-monorepo/.github/workflows/call.setup-deploy-and-test-local-subgraph.yml@dev
+    name: Build and Test Subgraph (Development Branch)
+    with:
+      subgraph-release: ''
+      run-sdk-core-tests: false
 
-    if: github.repository == 'superfluid-finance/protocol-monorepo'
+  test-subgraph-on-previous-sdk-core-versions:
+    uses: ./.github/workflows/call.test-subgraph-on-previous-sdk-core-versions.yml
+    name: Test Query Schema and Queries Against Local and Deployed Dev Subgraphs with Previous SDK-Core Versions
+    with:
+      subgraph-release: dev
+      subgraph-endpoint: ''
 
-    runs-on: ubuntu-latest
+  # test query and subgraph schemas are in sync and query works
+  test-query-schema-against-deployed-dev-subgraphs:
+    uses: ./.github/workflows/call.check-query-schema-against-subgraph.yml
+    name: "Test Query Schema and Queries Against Local and Deployed Dev Subgraphs"
+    with:
+      subgraph-release: dev
 
-    strategy:
-      matrix:
-        node-version: [16.x]
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v1
-        with:
-          node-version: ${{ matrix.node-version }}
-
-      - name: "Install yarn and ganache-cli"
-        run: npm install -g yarn ganache-cli
-
-      - name: "Run ganache-cli node"
-        run: ganache-cli --networkId 4447 -h 0.0.0.0 -m "test test test test test test test test test test test junk" &
-
-      - name: "Checkout graph node repo and set up local graph node"
-        uses: actions/checkout@v3
-        with:
-          repository: graphprotocol/graph-node
-          path: graph-node
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: "Run setup because linux and docker-compose"
-        run: |
-          sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-          sudo chmod +x /usr/local/bin/docker-compose
-          chmod +x setup.sh
-          ./setup.sh
-        working-directory: ./graph-node/docker
-
-      - name: "Docker compose"
-        run: docker-compose up &
-        working-directory: ./graph-node/docker
-
-      - name: "Run integration test suite"
-        run: yarn workspace @superfluid-finance/subgraph test
+  test-spec-haskell:
+    uses: ./.github/workflows/call.test-spec-haskell.yml
+    name: Build and Test Spec Haskell (Canary Branch)
 
   ethereum-contracts-coverage:
     name: Run coverage test of ethereum-contracts of dev branch
 
-    if: github.repository == 'superfluid-finance/protocol-monorepo'
-
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-        with:
-          path: protocol-monorepo
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
+          cache: "yarn"
 
       - name: Run coverage test
-        working-directory: protocol-monorepo
         run: |
           yarn install --frozen-lockfile
           yarn build
@@ -130,27 +106,23 @@ jobs:
         with:
           name: ethereum-contracts-coverage
           path: |
-            protocol-monorepo/packages/ethereum-contracts/coverage/
+            packages/ethereum-contracts/coverage/
 
   js-sdk-coverage:
     name: Run coverage test of js-sdk on dev branch
-
-    if: github.repository == 'superfluid-finance/protocol-monorepo'
 
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-        with:
-          path: protocol-monorepo
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
+          cache: "yarn"
 
       - name: Run coverage test
-        working-directory: protocol-monorepo
         run: |
           yarn install --frozen-lockfile
           yarn build
@@ -161,62 +133,85 @@ jobs:
         with:
           name: js-sdk-coverage
           path: |
-            protocol-monorepo/packages/js-sdk/coverage/
+            packages/js-sdk/coverage/
 
   sdk-core-coverage:
     name: Run coverage test of sdk-core on dev branch
-
-    if: github.repository == 'superfluid-finance/protocol-monorepo'
 
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
-        with:
-          path: protocol-monorepo
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
+          cache: "yarn"
 
       - name: Run coverage test
-        working-directory: protocol-monorepo
         run: |
           yarn install --frozen-lockfile
+          yarn workspace @superfluid-finance/sdk-core generate-graphql-schema:dev
           yarn build
           yarn workspace @superfluid-finance/sdk-core test-coverage
+        env:
+          SUBGRAPH_RELEASE_TAG: dev
 
       - name: Create coverage artifact
         uses: actions/upload-artifact@v3
         with:
           name: sdk-core-coverage
           path: |
-            protocol-monorepo/packages/sdk-core/coverage/
+            packages/sdk-core/coverage/
 
-  publish-coverage-reports:
-    name: Publish coverage reports
-
-    needs: [ethereum-contracts-coverage, js-sdk-coverage, sdk-core-coverage]
+  hardhat-deployer-coverage:
+    name: Run coverage test of hardhat-deployer on dev branch
 
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
+
+      - name: Use Node.js 16.x
+        uses: actions/setup-node@v3
         with:
-          # NOTE: all coverage report job should checkout the code to the same path,
-          #       otherwise reports wouldn't match the code here.
-          path: protocol-monorepo
+          node-version: 16.x
+          cache: "yarn"
+
+      - name: Run coverage test
+        run: |
+          yarn install --frozen-lockfile
+          yarn build
+          yarn workspace @superfluid-finance/hardhat-deployer test-coverage
+
+      - name: Create coverage artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: hardhat-deployer-coverage
+          path: |
+            packages/hardhat-deployer/coverage/
+
+  publish-coverage-reports:
+    name: Publish coverage reports
+    needs: [ethereum-contracts-coverage, js-sdk-coverage, sdk-core-coverage, hardhat-deployer-coverage]
+
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Download ethereum-contracts-coverage
         uses: actions/download-artifact@v3
         with:
           name: ethereum-contracts-coverage
-          path: protocol-monorepo/packages/ethereum-contracts/coverage
+          path: packages/ethereum-contracts/coverage
       - name: Upload ethereum-contracts-coverage to codecov
         uses: codecov/codecov-action@v2
         with:
-          files: protocol-monorepo/packages/ethereum-contracts/coverage/lcov.info
+          files: packages/ethereum-contracts/coverage/lcov.info
           name: ethereum-contracts-coverage
           flags: ethereum-contracts
           fail_ci_if_error: true
@@ -225,11 +220,11 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: js-sdk-coverage
-          path: protocol-monorepo/packages/js-sdk/coverage
+          path: packages/js-sdk/coverage
       - name: Upload js-sdk-coverage to codecov
         uses: codecov/codecov-action@v2
         with:
-          files: protocol-monorepo/packages/js-sdk/coverage/lcov.info
+          files: packages/js-sdk/coverage/lcov.info
           name: js-sdk-coverage
           flags: js-sdk
           fail_ci_if_error: true
@@ -238,19 +233,32 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: sdk-core-coverage
-          path: protocol-monorepo/packages/sdk-core/coverage
+          path: packages/sdk-core/coverage
       - name: Upload sdk-core-coverage to codecov
         uses: codecov/codecov-action@v2
         with:
-          files: protocol-monorepo/packages/sdk-core/coverage/lcov.info
+          files: packages/sdk-core/coverage/lcov.info
           name: sdk-core-coverage
           flags: sdk-core
+          fail_ci_if_error: true
+
+      - name: Download hardhat-deployer-coverage
+        uses: actions/download-artifact@v3
+        with:
+          name: hardhat-deployer-coverage
+          path: packages/hardhat-deployer/coverage
+      - name: Upload hardhat-deployer-coverage to codecov
+        uses: codecov/codecov-action@v2
+        with:
+          files: packages/hardhat-deployer/coverage/lcov.info
+          name: hardhat-deployer-coverage
+          flags: hardhat-deployer
           fail_ci_if_error: true
 
   publish-npm-packages:
     name: Publish canary packages to registries
 
-    needs: [essential-build-and-test, subgraph-test, ethereum-contracts-coverage, js-sdk-coverage, sdk-core-coverage]
+    needs: [essential-build-and-test, test-subgraph, test-spec-haskell, ethereum-contracts-coverage, js-sdk-coverage, sdk-core-coverage, hardhat-deployer-coverage]
 
     runs-on: ubuntu-latest
 
@@ -263,9 +271,10 @@ jobs:
           path: build-scripts
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
+          cache: "yarn"
           registry-url: https://registry.npmjs.org/
 
       - name: Install dependencies
@@ -274,6 +283,7 @@ jobs:
       - name: Build
         run: |
           yarn --cwd packages/sdk-core set-default-subgraph-release-tag
+          yarn --cwd packages/sdk-core generate-graphql-schema:dev
           yarn build
         env:
           SUBGRAPH_RELEASE_TAG: dev
@@ -344,9 +354,10 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
+          cache: "yarn"
 
       - name: Build
         run: |
