@@ -18,8 +18,8 @@ case $TRUFFLE_NETWORK in
     polygon-mainnet | \
     optimism-mainnet | \
     arbitrum-one | \
-    avalanche-mainnet | \
-    bsc )
+    avalanche-c | \
+    bsc-mainnet )
         echo "$TRUFFLE_NETWORK is mainnet"
         IS_TESTNET=
         ;;
