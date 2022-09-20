@@ -3,6 +3,64 @@ All notable changes to the ethereum-contracts will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## [v.1.4.0] - 2022-09-05
+
+### Added
+- CFA Agreement Forwarder (#982)
+- Gov: Convenience method for app registration keys and some cleanup (#1049)
+- App Credit Rule CFA-2 (#899)
+- Custom Errors Support (#1043)
+- yAcademy Gas Savings Applied (#1062)
+- bump solc to 0.8.16 (#1065)
+- Add gnosisscan support (#1050)
+- BNB Chain Support (#925)
+- Initialize logic contracts on deployment (using "castrate") (#841)
+- add tokenDecimals option to deploy-test-token.js (#1025)
+
+### Fixed
+
+- [TOGA] Added missing awaits (#1044)
+- New TestSuperApp: stream redirector wip, for testing when `appCallbackLevel` starting at 0 (#1008)
+- Prod deployment script fix (#971)
+- Adds a missing closing parenthesis to example test (#967)
+- Addresses several shortcomings in current workflows (mainly mainnet related) (#911)
+- Queue up FAILED_VERIFICATIONS (#900)
+
+### Changed
+- Deprecate support for `kovan`, `rinkeby`, `optimism-kovan`, and `optimism-rinkeby` (#1032)
+- Remove MaticBridgedToken from monorepo (#1060)
+- Updating dependencies & dedup dev packages (#1064)
+
+## [v1.3.1] - 2022-08-05
+
+### Added
+
+- Add resolver and loader to deployer, add tests (#1011) 
+
+## [v1.3.0] - 2022-06-16
+
+### Added
+
+- Automated generation and publishing of contract API docs with solidity-docgen (#880)
+- Set newCtx whenever a function is modifying + using it (#854)
+- CfAv1Library ACL support (#803)
+- Avalanche Support Added (#819)
+
+### Fixes
+
+- Production deployment script fixes (#821)
+- Increase Code Coverage (#891)
+- SlotsBitmapLibrary Property Test Fuzzing (#790)
+
+### Changed
+
+- IDA: Distribute no longer reverts when units is 0 (#853)
+- Use `abi.encodeCall` (#869)
+- Review safemath & safecast (#851)
+- Solidity 0.8.14 (#896)
+
 ## [v1.2.2] - 2022-05-09
 
 ### Breaking
@@ -113,7 +171,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Add missing event emits (#656)
 - CFALibraryV1: Change solidity pragma in cfa lib to support versions 0.8 & later (#642)
-- Multiple scripts fixes re: do not engage with unitialized super token proxies (#603)
+- Multiple scripts fixes re: do not engage with uninitialized super token proxies (#603)
 
 ### Security
 

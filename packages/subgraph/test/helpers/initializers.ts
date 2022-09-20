@@ -9,14 +9,14 @@
 
 import {
     IAccountTokenSnapshot,
+    IFlowOperator,
+    IFlowOperatorUpdatedInitTestData,
     IFlowUpdatedInitTestData,
     IIndex,
+    IIndexSubscription,
     IInstantDistributionTestData,
     IStreamData,
-    IIndexSubscription,
     ITokenStatistic,
-    IFlowOperatorUpdatedInitTestData,
-    IFlowOperator,
 } from "../interfaces";
 import {
     getATSId,
@@ -176,14 +176,18 @@ export const getOrInitAccountTokenSnapshot = (
             totalApprovedSubscriptions: 0,
             balanceUntilUpdatedAt: "0",
             totalAmountStreamedUntilUpdatedAt: "0",
+            totalAmountStreamedInUntilUpdatedAt: "0",
+            totalAmountStreamedOutUntilUpdatedAt: "0",
             totalAmountTransferredUntilUpdatedAt: "0",
             totalDeposit: "0",
+            maybeCriticalAtTimestamp: "0",
             totalNetFlowRate: "0",
             totalInflowRate: "0",
             totalOutflowRate: "0",
             account: { id: accountId },
             token: { id: tokenId },
             flowOperators: [],
+            accountTokenSnapshotLogs: [],
         };
     }
     return existingATS;
@@ -215,6 +219,7 @@ export const getOrInitTokenStatistics = (
             totalDeposit: "0",
             totalSupply: totalSupply || "0",
             token: { id: tokenId },
+            tokenStatisticLogs: [],
         };
     }
     return existingTokenStats;

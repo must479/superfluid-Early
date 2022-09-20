@@ -3,8 +3,6 @@ require("../test/contracts/upgradability/UUPS.test.js");
 
 // Libs
 require("../test/contracts/libs/CallUtils.test.js");
-require("../test/contracts/libs/Int96SafeMath.test.js");
-require("../test/contracts/libs/UInt128SafeMath.test.js");
 
 // Superfluid
 require("./superfluid-core.js");
@@ -22,3 +20,6 @@ require("../test/contracts/utils/Resolver.test.js");
 require("../test/contracts/utils/SuperUpgrader.test.js");
 require("../test/contracts/utils/BatchLiquidator.test.js");
 require("../test/contracts/utils/TOGA.test");
+
+// Agreement forwarders
+require("../test/contracts/agreements/CFAv1Forwarder.test.js");

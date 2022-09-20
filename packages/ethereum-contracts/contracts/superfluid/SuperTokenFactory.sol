@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity 0.8.13;
+pragma solidity 0.8.16;
 
 import {
     ISuperTokenFactory,
     ISuperToken,
     IERC20,
-    ERC20WithTokenInfo
+    ERC20WithTokenInfo,
+    SuperfluidErrors
 } from "../interfaces/superfluid/ISuperTokenFactory.sol";
 
 import { ISuperfluid } from "../interfaces/superfluid/ISuperfluid.sol";
@@ -60,7 +61,9 @@ abstract contract SuperTokenFactoryBase is
     }
 
     function updateCode(address newAddress) external override {
-        require(msg.sender == address(_host), "SuperTokenFactory: only host can update code");
+        if (msg.sender != address(_host)) {
+            revert SuperfluidErrors.ONLY_HOST(SuperfluidErrors.SUPER_TOKEN_FACTORY_ONLY_HOST);
+        }
         _updateCodeAddress(newAddress);
         _updateSuperTokenLogic();
     }
@@ -68,6 +71,7 @@ abstract contract SuperTokenFactoryBase is
     function _updateSuperTokenLogic() private {
         // use external call to trigger the new code to update the super token logic contract
         _superTokenLogic = SuperToken(this.createSuperTokenLogic(_host));
+        UUPSProxiable(address(_superTokenLogic)).castrate();
         emit SuperTokenLogicCreated(_superTokenLogic);
     }
 
@@ -93,7 +97,9 @@ abstract contract SuperTokenFactoryBase is
         public override
         returns (ISuperToken superToken)
     {
-        require(address(underlyingToken) != address(0), "SuperTokenFactory: zero address");
+        if (address(underlyingToken) == address(0)) {
+            revert SuperfluidErrors.ZERO_ADDRESS(SuperfluidErrors.SUPER_TOKEN_FACTORY_ZERO_ADDRESS);
+        }
 
         if (upgradability == Upgradability.NON_UPGRADABLE) {
             superToken = ISuperToken(this.createSuperTokenLogic(_host));
@@ -152,7 +158,7 @@ abstract contract SuperTokenFactoryBase is
 
 }
 
-// spliting this off because the contract is getting bigger
+// splitting this off because the contract is getting bigger
 contract SuperTokenFactoryHelper {
     function create(ISuperfluid host)
         external

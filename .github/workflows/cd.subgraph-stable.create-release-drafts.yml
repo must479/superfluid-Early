@@ -1,4 +1,4 @@
-name: Create subgraph Stable Release Draft
+name: CD | Create Subgraph Stable Release Draft
 
 on:
   workflow_dispatch:
@@ -6,8 +6,8 @@ on:
     branches:
       - "release-subgraph-v1"
     paths:
-      - 'packages/subgraph/**'
-      - '.github/workflows/cd.subgraph-stable.create-release-drafts.yml'
+      - "packages/subgraph/**"
+      - ".github/workflows/cd.subgraph-stable.create-release-drafts.yml"
 
 jobs:
 
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Use Node.js 16.x
-        uses: actions/setup-node@v1
+        uses: actions/setup-node@v3
         with:
           node-version: 16.x
           registry-url: https://registry.npmjs.org/
@@ -30,7 +30,7 @@ jobs:
         run: |
           # subgraph
           NEW_SUBGRAPH_VERSION=`jq -r .version packages/subgraph/package.json`
-          if git tag | grep -e '^subgraph' | grep v$NEW_SUBGRAPH_VERSION;then
+          if git tag | grep -e "^subgraph" | grep v$NEW_SUBGRAPH_VERSION;then
             echo subgraph version exists
           else
             echo "PUBLISHED_SUBGRAPH_VERSION=1" >> $GITHUB_ENV

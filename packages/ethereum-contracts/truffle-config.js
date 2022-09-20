@@ -35,29 +35,26 @@ try {
 // - https://github.com/trufflesuite/truffle/issues/3182
 // - https://github.com/openethereum/parity-ethereum/issues/11824
 // - https://github.com/MetaMask/web3-provider-engine/issues/311
-function createProviderWithOEWorkaround(url) {
-    let provider;
-    const Web3WsProvider = require("web3-providers-ws");
-    if (url.startsWith("ws:") || url.startsWith("wss:")) {
-        provider = new Web3WsProvider(url);
-        // apply the skipCache hack
-        const origSend = provider.__proto__.send;
-        provider.__proto__.send = function (payload, callback) {
-            delete payload.skipCache;
-            origSend.call(provider, payload, callback);
-        };
-    } else {
-        // let hdwallet provider handle the url directly
-        provider = url;
-    }
-    return provider;
-}
+// function createProviderWithOEWorkaround(url) {
+//     let provider;
+//     const Web3WsProvider = require("web3-providers-ws");
+//     if (url.startsWith("ws:") || url.startsWith("wss:")) {
+//         provider = new Web3WsProvider(url);
+//         // apply the skipCache hack
+//         const origSend = provider.__proto__.send;
+//         provider.__proto__.send = function (payload, callback) {
+//             delete payload.skipCache;
+//             origSend.call(provider, payload, callback);
+//         };
+//     } else {
+//         // let hdwallet provider handle the url directly
+//         provider = url;
+//     }
+//     return provider;
+// }
 
 const ALIASES = {
     "eth-mainnet": ["mainnet"],
-    "eth-ropsten": ["ropsten"],
-    "eth-rinkeby": ["rinkeby"],
-    "eth-kovan": ["kovan"],
     "eth-goerli": ["goerli"],
 
     "xdai-mainnet": ["xdai"],
@@ -66,17 +63,26 @@ const ALIASES = {
     "polygon-mumbai": ["mumbai"],
 
     "optimism-mainnet": ["opmainnet"],
-    "optimism-kovan": ["opkovan"],
+    "optimism-goerli": ["opgoerli"],
 
     "arbitrum-one": ["arbone"],
-    "arbitrum-rinkeby": ["arbrinkeby"],
+    "arbitrum-goerli": ["arbgoerli"],
 
-    "avalanche-C": ["avalanche"],
+    "avalanche-c": ["avalanche"],
     "avalanche-fuji": ["avafuji"],
 
     "bsc-mainnet": ["bsc"],
 
+    // currently unsupported
+    //
+    "optimism-kovan": ["opkovan"],
+
+    "arbitrum-rinkeby": ["arbrinkeby"],
+
+    "bsc-chapel": ["chapel"],
+
     "celo-mainnet": ["celo"],
+    "celo-alfajores": ["alfajores"],
 };
 
 const DEFAULT_NETWORK_TIMEOUT = 60000;
@@ -99,19 +105,25 @@ function getEnvValue(networkName, key) {
 
 /**
  * Create default network configurations
+ *
+ * NOTE: set providerWrapper to createProviderWithOEWorkaround in case this is still needed,
+ *       by default it's an identity function.
  */
-function createNetworkDefaultConfiguration(networkName, chainId) {
+function createNetworkDefaultConfiguration(
+    networkName,
+    providerWrapper = (a) => a
+) {
     return {
         provider: () =>
             new HDWalletProvider({
                 mnemonic: getEnvValue(networkName, "MNEMONIC"),
-                url: createProviderWithOEWorkaround(
-                    getEnvValue(networkName, "PROVIDER_URL")
+                url: providerWrapper(
+                    process.env.OVERRIDE_PROVIDER_URL ||
+                        getEnvValue(networkName, "PROVIDER_URL")
                 ),
                 addressIndex: 0,
                 numberOfAddresses: 10,
                 shareNonce: true,
-                chainId, // optional
             }),
         gasPrice: +getEnvValue(networkName, "GAS_PRICE"),
     };
@@ -151,33 +163,9 @@ const E = (module.exports = {
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
         },
 
-        "eth-rinkeby": {
-            ...createNetworkDefaultConfiguration("eth-rinkeby"),
-            network_id: 4,
-            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
-            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
-            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
-        },
-
-        "eth-ropsten": {
-            ...createNetworkDefaultConfiguration("eth-ropsten"),
-            network_id: 3,
-            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
-            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
-            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
-        },
-
         "eth-goerli": {
             ...createNetworkDefaultConfiguration("eth-goerli"),
             network_id: 5,
-            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
-            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
-            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
-        },
-
-        "eth-kovan": {
-            ...createNetworkDefaultConfiguration("eth-kovan"),
-            network_id: 42,
             timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
             skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
@@ -224,9 +212,9 @@ const E = (module.exports = {
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
         },
 
-        "optimism-kovan": {
-            ...createNetworkDefaultConfiguration("optimism-kovan"),
-            network_id: 69,
+        "optimism-goerli": {
+            ...createNetworkDefaultConfiguration("optimism-goerli"),
+            network_id: 420,
             timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
             skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
@@ -244,10 +232,9 @@ const E = (module.exports = {
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
         },
 
-        "arbitrum-rinkeby": {
-            ...createNetworkDefaultConfiguration("arbitrum-rinkeby"),
-            network_id: 421611,
-            gas: 250e6, // arbgas is different and estimation fails for expensive txs
+        "arbitrum-goerli": {
+            ...createNetworkDefaultConfiguration("arbitrum-goerli"),
+            network_id: 421613,
             timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
             skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
@@ -256,8 +243,8 @@ const E = (module.exports = {
         //
         // Avalanche C-Chain: https://docs.avax.network/learn/platform-overview#contract-chain-c-chain
         //
-        "avalanche-C": {
-            ...createNetworkDefaultConfiguration("avalanche-C"),
+        "avalanche-c": {
+            ...createNetworkDefaultConfiguration("avalanche-c"),
             network_id: 43114,
             timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
             skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
@@ -284,11 +271,47 @@ const E = (module.exports = {
         },
 
         //
+        // Currently unsupported networks
+        //
+
+        "optimism-kovan": {
+            ...createNetworkDefaultConfiguration("optimism-kovan"),
+            network_id: 69,
+            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
+            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
+        },
+
+        "arbitrum-rinkeby": {
+            ...createNetworkDefaultConfiguration("arbitrum-rinkeby"),
+            network_id: 421611,
+            gas: 250e6, // arbgas is different and estimation fails for expensive txs
+            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
+            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
+        },
+
+        "bsc-chapel": {
+            ...createNetworkDefaultConfiguration("bsc-chapel"),
+            network_id: 97,
+            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
+            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
+        },
+
+        //
         // Celo: https://docs.celo.org/getting-started/choosing-a-network
         //
         "celo-mainnet": {
             ...createNetworkDefaultConfiguration("celo-mainnet"),
             network_id: 42220,
+            timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
+            skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
+            networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
+        },
+        "celo-alfajores": {
+            ...createNetworkDefaultConfiguration("celo-alfajores"),
+            network_id: 44787,
             timeoutBlocks: 50, // # of blocks before a deployment times out  (minimum/default: 50)
             skipDryRun: false, // Skip dry run before migrations? (default: false for public nets )
             networkCheckTimeout: DEFAULT_NETWORK_TIMEOUT,
@@ -364,7 +387,7 @@ const E = (module.exports = {
     // Configure your compilers
     compilers: {
         solc: {
-            version: "0.8.13", // Fetch exact version from solc-bin (default: truffle's version)
+            version: "0.8.16", // Fetch exact version from solc-bin (default: truffle's version)
             settings: {
                 // See the solidity docs for advice about optimization and evmVersion
                 optimizer: {
@@ -383,6 +406,7 @@ const E = (module.exports = {
         optimistic_etherscan: process.env.OPTIMISTIC_API_KEY,
         bscscan: process.env.BSCSCAN_API_KEY,
         arbiscan: process.env.ARBISCAN_API_KEY,
+        gnosisscan: process.env.GNOSISSCAN_API_KEY,
     },
 });
 
