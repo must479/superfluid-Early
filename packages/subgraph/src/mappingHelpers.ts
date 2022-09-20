@@ -1,30 +1,36 @@
-import { Address, BigInt, Bytes, ethereum } from "@graphprotocol/graph-ts";
+import { Address, BigInt, ethereum } from "@graphprotocol/graph-ts";
 import { ISuperfluid as Superfluid } from "../generated/Host/ISuperfluid";
 import {
     Account,
     AccountTokenSnapshot,
+    AccountTokenSnapshotLog,
     FlowOperator,
     Index,
     IndexSubscription,
+    ResolverEntry,
     Stream,
     StreamRevision,
     Token,
     TokenStatistic,
+    TokenStatisticLog,
 } from "../generated/schema";
 import {
     BIG_INT_ZERO,
+    createLogID,
+    calculateMaybeCriticalAtTimestamp,
     getAccountTokenSnapshotID,
     getAmountStreamedSinceLastUpdatedAt,
+    getFlowOperatorID,
     getIndexID,
     getIsListedToken,
+    getOrder,
     getStreamID,
     getStreamRevisionID,
     getSubscriptionID,
     getTokenInfoAndReturn,
-    updateTotalSupplyForNativeSuperToken,
     streamRevisionExists,
+    updateTotalSupplyForNativeSuperToken,
     ZERO_ADDRESS,
-    getFlowOperatorID,
 } from "./utils";
 import { SuperToken as SuperTokenTemplate } from "../generated/templates";
 import { ISuperToken as SuperToken } from "../generated/templates/SuperToken/ISuperToken";
@@ -98,7 +104,7 @@ export function getOrInitSuperToken(
 
         token.save();
 
-        // Note: we initalize and create tokenStatistic whenever we create a
+        // Note: we initialize and create tokenStatistic whenever we create a
         // token as well.
         let tokenStatistic = getOrInitTokenStatistic(tokenAddress, block);
         tokenStatistic = updateTotalSupplyForNativeSuperToken(
@@ -117,7 +123,6 @@ export function getOrInitSuperToken(
             let address = Address.fromString(underlyingAddress.toHexString());
             getOrInitToken(address, block);
         }
-
         return token as Token;
     }
 
@@ -128,10 +133,12 @@ export function getOrInitSuperToken(
         token.save();
     }
 
-    if (token.isListed == false) {
-        token = getIsListedToken(token as Token, tokenAddress, resolverAddress);
-        token.save();
-    }
+    // @note - this is currently being called every single time to handle list/unlist of tokens
+    // because we don't have the Resolver Set event on some networks
+    // We can remove this once we have migrated data to a new resolver which emits this event on
+    // all networks.
+    token = getIsListedToken(token as Token, tokenAddress, resolverAddress);
+    token.save();
 
     return token as Token;
 }
@@ -183,6 +190,9 @@ export function getOrInitStreamRevision(
 
 /**
  * Gets or initializes a Stream, always sets the updatedAt.
+ * NOTE: this is only called in one place in handleFlowUpdated
+ * and we always save the Stream entity OUTSIDE of this function
+ * after initializing it here.
  */
 export function getOrInitStream(event: FlowUpdated): Stream {
     // Create accounts if they do not exist
@@ -231,7 +241,6 @@ export function getOrInitStream(event: FlowUpdated): Stream {
         // also handles the fact that custom super tokens are
         // initialized after event is first initialized
         getOrInitSuperToken(event.params.token, event.block);
-        stream.save();
     }
     return stream as Stream;
 }
@@ -262,6 +271,7 @@ export function getOrInitFlowOperator(
             senderAddress,
             tokenAddress
         );
+        flowOperatorEntity.flowOperator = flowOperatorAddress;
         flowOperatorEntity.updatedAtBlockNumber = block.number;
         flowOperatorEntity.updatedAtTimestamp = currentTimestamp;
         flowOperatorEntity.save();
@@ -367,6 +377,30 @@ export function getOrInitSubscription(
     return subscription as IndexSubscription;
 }
 
+export function getOrInitResolverEntry(
+    id: string,
+    target: Address,
+    block: ethereum.Block
+): ResolverEntry {
+    let resolverEntry = ResolverEntry.load(id);
+
+    if (resolverEntry == null) {
+        resolverEntry = new ResolverEntry(id);
+        resolverEntry.createdAtBlockNumber = block.number;
+        resolverEntry.createdAtTimestamp = block.timestamp;
+        resolverEntry.targetAddress = target;
+
+        const superToken = Token.load(target.toHex());
+        resolverEntry.isToken = superToken != null;
+    }
+    resolverEntry.updatedAtBlockNumber = block.number;
+    resolverEntry.updatedAtTimestamp = block.timestamp;
+    resolverEntry.isListed = target.notEqual(ZERO_ADDRESS);
+
+    resolverEntry.save();
+    return resolverEntry as ResolverEntry;
+}
+
 /**************************************************************************
  * Aggregate initializer functions
  *************************************************************************/
@@ -385,20 +419,79 @@ export function getOrInitAccountTokenSnapshot(
         accountTokenSnapshot.totalNumberOfActiveStreams = 0;
         accountTokenSnapshot.totalNumberOfClosedStreams = 0;
         accountTokenSnapshot.totalSubscriptionsWithUnits = 0;
+        accountTokenSnapshot.isLiquidationEstimateOptimistic = false;
         accountTokenSnapshot.totalApprovedSubscriptions = 0;
         accountTokenSnapshot.balanceUntilUpdatedAt = BIG_INT_ZERO;
         accountTokenSnapshot.totalNetFlowRate = BIG_INT_ZERO;
         accountTokenSnapshot.totalInflowRate = BIG_INT_ZERO;
         accountTokenSnapshot.totalOutflowRate = BIG_INT_ZERO;
+        accountTokenSnapshot.totalAmountStreamedInUntilUpdatedAt = BIG_INT_ZERO;
+        accountTokenSnapshot.totalAmountStreamedOutUntilUpdatedAt =
+            BIG_INT_ZERO;
         accountTokenSnapshot.totalAmountStreamedUntilUpdatedAt = BIG_INT_ZERO;
         accountTokenSnapshot.totalAmountTransferredUntilUpdatedAt =
             BIG_INT_ZERO;
         accountTokenSnapshot.totalDeposit = BIG_INT_ZERO;
+        accountTokenSnapshot.maybeCriticalAtTimestamp = null;
         accountTokenSnapshot.account = accountAddress.toHex();
         accountTokenSnapshot.token = tokenAddress.toHex();
         accountTokenSnapshot.save();
     }
     return accountTokenSnapshot as AccountTokenSnapshot;
+}
+
+export function _createAccountTokenSnapshotLogEntity(
+    event: ethereum.Event,
+    accountAddress: Address,
+    tokenAddress: Address,
+    eventName: string
+): void {
+    if (accountAddress.equals(ZERO_ADDRESS)) {
+        return;
+    }
+    let accountTokenSnapshot = getOrInitAccountTokenSnapshot(
+        accountAddress,
+        tokenAddress,
+        event.block
+    );
+    // Transaction
+    let atsLog = new AccountTokenSnapshotLog(
+        createLogID("ATSLog", accountTokenSnapshot.id, event)
+    );
+    atsLog.transactionHash = event.transaction.hash;
+    atsLog.timestamp = event.block.timestamp;
+    atsLog.order = getOrder(event.block.number, event.logIndex);
+    atsLog.blockNumber = event.block.number;
+    atsLog.logIndex = event.logIndex;
+    atsLog.triggeredByEventName = eventName;
+    // Account token snapshot state
+    atsLog.totalNumberOfActiveStreams =
+        accountTokenSnapshot.totalNumberOfActiveStreams;
+    atsLog.totalNumberOfClosedStreams =
+        accountTokenSnapshot.totalNumberOfClosedStreams;
+    atsLog.totalSubscriptionsWithUnits =
+        accountTokenSnapshot.totalSubscriptionsWithUnits;
+    atsLog.totalApprovedSubscriptions =
+        accountTokenSnapshot.totalApprovedSubscriptions;
+    atsLog.balance = accountTokenSnapshot.balanceUntilUpdatedAt;
+    atsLog.totalNetFlowRate = accountTokenSnapshot.totalNetFlowRate;
+    atsLog.totalInflowRate = accountTokenSnapshot.totalInflowRate;
+    atsLog.totalOutflowRate = accountTokenSnapshot.totalOutflowRate;
+    atsLog.totalAmountStreamed =
+        accountTokenSnapshot.totalAmountStreamedUntilUpdatedAt;
+    atsLog.totalAmountStreamedIn =
+        accountTokenSnapshot.totalAmountStreamedInUntilUpdatedAt;
+    atsLog.totalAmountStreamedOut =
+        accountTokenSnapshot.totalAmountStreamedOutUntilUpdatedAt;
+    atsLog.totalAmountTransferred =
+        accountTokenSnapshot.totalAmountTransferredUntilUpdatedAt;
+    atsLog.totalDeposit = accountTokenSnapshot.totalDeposit;
+    atsLog.maybeCriticalAtTimestamp =
+        accountTokenSnapshot.maybeCriticalAtTimestamp;
+    atsLog.account = accountTokenSnapshot.account;
+    atsLog.token = accountTokenSnapshot.token;
+    atsLog.accountTokenSnapshot = accountTokenSnapshot.id;
+    atsLog.save();
 }
 
 export function getOrInitTokenStatistic(
@@ -427,6 +520,51 @@ export function getOrInitTokenStatistic(
         tokenStatistic.save();
     }
     return tokenStatistic as TokenStatistic;
+}
+
+export function _createTokenStatisticLogEntity(
+    event: ethereum.Event,
+    tokenAddress: Address,
+    eventName: string
+): void {
+    let tokenStatistic = getOrInitTokenStatistic(tokenAddress, event.block);
+    let tokenStatisticLog = new TokenStatisticLog(
+        createLogID("TSLog", tokenStatistic.id, event)
+    );
+
+    // Transaction Data
+    tokenStatisticLog.timestamp = event.block.timestamp;
+    tokenStatisticLog.blockNumber = event.block.number;
+    tokenStatisticLog.transactionHash = event.transaction.hash;
+    tokenStatisticLog.logIndex = event.logIndex;
+    tokenStatisticLog.order = getOrder(event.block.number, event.logIndex);
+    tokenStatisticLog.triggeredByEventName = eventName;
+
+    // Token Statistic State
+    tokenStatisticLog.totalNumberOfActiveStreams =
+        tokenStatistic.totalNumberOfActiveStreams;
+    tokenStatisticLog.totalNumberOfClosedStreams =
+        tokenStatistic.totalNumberOfClosedStreams;
+    tokenStatisticLog.totalNumberOfIndexes =
+        tokenStatistic.totalNumberOfIndexes;
+    tokenStatisticLog.totalNumberOfActiveIndexes =
+        tokenStatistic.totalNumberOfActiveIndexes;
+    tokenStatisticLog.totalSubscriptionsWithUnits =
+        tokenStatistic.totalSubscriptionsWithUnits;
+    tokenStatisticLog.totalApprovedSubscriptions =
+        tokenStatistic.totalApprovedSubscriptions;
+    tokenStatisticLog.totalDeposit = tokenStatistic.totalDeposit;
+    tokenStatisticLog.totalOutflowRate = tokenStatistic.totalOutflowRate;
+    tokenStatisticLog.totalAmountStreamed =
+        tokenStatistic.totalAmountStreamedUntilUpdatedAt;
+    tokenStatisticLog.totalAmountTransferred =
+        tokenStatistic.totalAmountTransferredUntilUpdatedAt;
+    tokenStatisticLog.totalAmountDistributed =
+        tokenStatistic.totalAmountDistributedUntilUpdatedAt;
+    tokenStatisticLog.totalSupply = tokenStatistic.totalSupply;
+    tokenStatisticLog.token = tokenStatistic.token;
+    tokenStatisticLog.tokenStatistic = tokenStatistic.id;
+    tokenStatisticLog.save();
 }
 
 /**************************************************************************
@@ -487,6 +625,8 @@ export function updateAggregateIDASubscriptionsData(
     accountTokenSnapshot.totalSubscriptionsWithUnits =
         accountTokenSnapshot.totalSubscriptionsWithUnits +
         totalSubscriptionWithUnitsDelta;
+    accountTokenSnapshot.isLiquidationEstimateOptimistic =
+        accountTokenSnapshot.totalSubscriptionsWithUnits > 0;
     accountTokenSnapshot.totalApprovedSubscriptions =
         accountTokenSnapshot.totalApprovedSubscriptions +
         totalApprovedSubscriptionsDelta;
@@ -499,6 +639,8 @@ export function updateAggregateIDASubscriptionsData(
     tokenStatistic.totalSubscriptionsWithUnits =
         tokenStatistic.totalSubscriptionsWithUnits +
         totalSubscriptionWithUnitsDelta;
+    accountTokenSnapshot.isLiquidationEstimateOptimistic =
+        accountTokenSnapshot.totalSubscriptionsWithUnits > 0;
     tokenStatistic.totalApprovedSubscriptions =
         tokenStatistic.totalApprovedSubscriptions +
         totalApprovedSubscriptionsDelta;
@@ -515,21 +657,44 @@ export function updateAggregateIDASubscriptionsData(
  */
 function updateATSBalanceAndUpdatedAt(
     accountTokenSnapshot: AccountTokenSnapshot,
-    block: ethereum.Block
+    block: ethereum.Block,
+    balanceDelta: BigInt | null
 ): AccountTokenSnapshot {
     let superTokenContract = SuperToken.bind(
         Address.fromString(accountTokenSnapshot.token)
     );
-    let newBalanceResult = superTokenContract.try_realtimeBalanceOf(
-        Address.fromString(accountTokenSnapshot.account),
-        block.timestamp
-    );
-    if (!newBalanceResult.reverted) {
+
+    if (balanceDelta && accountTokenSnapshot.totalSubscriptionsWithUnits == 0) {
         accountTokenSnapshot.balanceUntilUpdatedAt =
-            newBalanceResult.value.value0;
+            accountTokenSnapshot.balanceUntilUpdatedAt.plus(
+                balanceDelta as BigInt
+            );
+    } else {
+        // if the account has any subscriptions with units we assume that
+        // the balance data requires a RPC call for balance because we did not
+        // have claim events there and we do not count distributions
+        // for subscribers
+        let newBalanceResult = superTokenContract.try_realtimeBalanceOf(
+            Address.fromString(accountTokenSnapshot.account),
+            block.timestamp
+        );
+        if (!newBalanceResult.reverted) {
+            accountTokenSnapshot.balanceUntilUpdatedAt =
+                newBalanceResult.value.value0;
+        }
     }
+
     accountTokenSnapshot.updatedAtTimestamp = block.timestamp;
     accountTokenSnapshot.updatedAtBlockNumber = block.number;
+
+    accountTokenSnapshot.maybeCriticalAtTimestamp =
+        calculateMaybeCriticalAtTimestamp(
+            accountTokenSnapshot.updatedAtTimestamp,
+            accountTokenSnapshot.balanceUntilUpdatedAt,
+            accountTokenSnapshot.totalNetFlowRate,
+            accountTokenSnapshot.maybeCriticalAtTimestamp
+        );
+
     accountTokenSnapshot.save();
     return accountTokenSnapshot as AccountTokenSnapshot;
 }
@@ -537,12 +702,18 @@ function updateATSBalanceAndUpdatedAt(
 /**
  * Updates the amount streamed, balance until updated at for the AccountTokenSnapshot
  * entity and also updates the updatedAt property on the account entity.
- * @dev Must call before updatedAt is updated.
+ * NOTE: call before the `updatedAt` property is updated otherwise you get incorrect data;
+ * NOTE: you should be calling updateTokenStatsStreamedUntilUpdatedAt whenever you call this
  */
 export function updateATSStreamedAndBalanceUntilUpdatedAt(
     accountAddress: Address,
     tokenAddress: Address,
-    block: ethereum.Block
+    block: ethereum.Block,
+
+    // TODO: we are currently always passing null here
+    // remove null one at a time and use validation script
+    // to compare v1 to feature
+    balanceDelta: BigInt | null
 ): void {
     let accountTokenSnapshot = getOrInitAccountTokenSnapshot(
         accountAddress,
@@ -552,20 +723,55 @@ export function updateATSStreamedAndBalanceUntilUpdatedAt(
     let amountStreamedSinceLastUpdatedAt = getAmountStreamedSinceLastUpdatedAt(
         block.timestamp,
         accountTokenSnapshot.updatedAtTimestamp,
-        accountTokenSnapshot.totalOutflowRate
+        accountTokenSnapshot.totalNetFlowRate
     );
+    let amountStreamedInSinceLastUpdatedAt =
+        getAmountStreamedSinceLastUpdatedAt(
+            block.timestamp,
+            accountTokenSnapshot.updatedAtTimestamp,
+            accountTokenSnapshot.totalInflowRate
+        );
+    let amountStreamedOutSinceLastUpdatedAt =
+        getAmountStreamedSinceLastUpdatedAt(
+            block.timestamp,
+            accountTokenSnapshot.updatedAtTimestamp,
+            accountTokenSnapshot.totalOutflowRate
+        );
 
-    // update the totalStreamedUntilUpdatedAt
+    // update the totalStreamedUntilUpdatedAt (net)
     accountTokenSnapshot.totalAmountStreamedUntilUpdatedAt =
         accountTokenSnapshot.totalAmountStreamedUntilUpdatedAt.plus(
             amountStreamedSinceLastUpdatedAt
         );
 
-    // update the balance via external call and saves the entity
-    // NOTE: this is the main culprit which slows things down currently
+    // update the totalStreamedUntilUpdatedAt (in)
+    accountTokenSnapshot.totalAmountStreamedInUntilUpdatedAt =
+        accountTokenSnapshot.totalAmountStreamedInUntilUpdatedAt.plus(
+            amountStreamedInSinceLastUpdatedAt
+        );
+
+    // update the totalStreamedUntilUpdatedAt (out)
+    accountTokenSnapshot.totalAmountStreamedOutUntilUpdatedAt =
+        accountTokenSnapshot.totalAmountStreamedOutUntilUpdatedAt.plus(
+            amountStreamedOutSinceLastUpdatedAt
+        );
+
+    let netAmountStreamedInSinceLastUpdatedAt =
+        getAmountStreamedSinceLastUpdatedAt(
+            block.timestamp,
+            accountTokenSnapshot.updatedAtTimestamp,
+            accountTokenSnapshot.totalNetFlowRate
+        );
+
+    // update the balance via external call if account has any subscription with more than 0 units
+    // or uses the balance delta (which includes amount streamed) and saves the entity
+    // we always add the amount streamed in this function
     accountTokenSnapshot = updateATSBalanceAndUpdatedAt(
         accountTokenSnapshot,
-        block
+        block,
+        balanceDelta
+            ? balanceDelta.plus(netAmountStreamedInSinceLastUpdatedAt)
+            : balanceDelta
     );
     accountTokenSnapshot.save();
 
@@ -573,6 +779,11 @@ export function updateATSStreamedAndBalanceUntilUpdatedAt(
     updateAccountUpdatedAt(accountAddress, block);
 }
 
+/**
+ * This function should always be called with updateATSStreamedAndBalanceUntilUpdatedAt
+ * @param tokenAddress
+ * @param block
+ */
 export function updateTokenStatsStreamedUntilUpdatedAt(
     tokenAddress: Address,
     block: ethereum.Block
@@ -587,6 +798,8 @@ export function updateTokenStatsStreamedUntilUpdatedAt(
         tokenStats.totalAmountStreamedUntilUpdatedAt.plus(
             amountStreamedSinceLastUpdatedAt
         );
+    tokenStats.updatedAtTimestamp = block.timestamp;
+    tokenStats.updatedAtBlockNumber = block.number;
     tokenStats.save();
 }
 
@@ -662,6 +875,12 @@ export function updateAggregateEntitiesStreamData(
     senderATS.totalNumberOfClosedStreams =
         senderATS.totalNumberOfClosedStreams + totalNumberOfClosedStreamsDelta;
     senderATS.totalDeposit = senderATS.totalDeposit.plus(depositDelta);
+    senderATS.maybeCriticalAtTimestamp = calculateMaybeCriticalAtTimestamp(
+        senderATS.updatedAtTimestamp,
+        senderATS.balanceUntilUpdatedAt,
+        senderATS.totalNetFlowRate,
+        senderATS.maybeCriticalAtTimestamp
+    );
 
     let receiverATS = getOrInitAccountTokenSnapshot(
         receiverAddress,
@@ -685,6 +904,13 @@ export function updateAggregateEntitiesStreamData(
     receiverATS.totalNumberOfClosedStreams =
         receiverATS.totalNumberOfClosedStreams +
         totalNumberOfClosedStreamsDelta;
+
+    receiverATS.maybeCriticalAtTimestamp = calculateMaybeCriticalAtTimestamp(
+        receiverATS.updatedAtTimestamp,
+        receiverATS.balanceUntilUpdatedAt,
+        receiverATS.totalNetFlowRate,
+        receiverATS.maybeCriticalAtTimestamp
+    );
     receiverATS.save();
 
     tokenStatistic.save();
