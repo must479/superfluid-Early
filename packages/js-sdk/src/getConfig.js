@@ -30,8 +30,10 @@ const getConfigData = (chainId) => {
     };
 };
 
-// eslint-disable-next-line no-undef
-Superfluid_getConfig = module.exports = function getConfig(chainId, version) {
+export let Superfluid_getConfig = (module.exports = function getConfig(
+    chainId,
+    version
+) {
     const DEFAULT_CONFIGS = {
         //
         // Local testing
@@ -156,4 +158,4 @@ Superfluid_getConfig = module.exports = function getConfig(chainId, version) {
     }
 
     return configs;
-};
+});
