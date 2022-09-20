@@ -1,8 +1,8 @@
 {
     "extends": "./tsconfig",
     "compilerOptions": {
-        "target": "es2018",
-        "lib": ["es5", "es6"],
+        "target": "ES2019",
+        "lib": ["ESNext"],
         "module": "commonjs",
         "moduleResolution": "node",
         "declaration": false,
