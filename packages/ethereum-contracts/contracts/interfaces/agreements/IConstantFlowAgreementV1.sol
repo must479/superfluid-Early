@@ -1,15 +1,34 @@
 // SPDX-License-Identifier: AGPLv3
-pragma solidity >= 0.8.0;
+pragma solidity >= 0.8.4;
 
 import { ISuperAgreement } from "../superfluid/ISuperAgreement.sol";
 import { ISuperfluidToken } from "../superfluid/ISuperfluidToken.sol";
-
+import { SuperfluidErrors } from "../superfluid/Definitions.sol";
 
 /**
  * @title Constant Flow Agreement interface
  * @author Superfluid
  */
 abstract contract IConstantFlowAgreementV1 is ISuperAgreement {
+
+    /**************************************************************************
+     * Errors
+     *************************************************************************/
+    error CFA_ACL_NO_SENDER_CREATE();
+    error CFA_ACL_NO_SENDER_UPDATE();
+    error CFA_ACL_OPERATOR_NO_CREATE_PERMISSIONS();
+    error CFA_ACL_OPERATOR_NO_UPDATE_PERMISSIONS();
+    error CFA_ACL_OPERATOR_NO_DELETE_PERMISSIONS();
+    error CFA_ACL_FLOW_RATE_ALLOWANCE_EXCEEDED();
+    error CFA_ACL_UNCLEAN_PERMISSIONS();
+    error CFA_ACL_NO_SENDER_FLOW_OPERATOR();
+    error CFA_ACL_NO_NEGATIVE_ALLOWANCE();
+
+    error CFA_DEPOSIT_TOO_BIG();
+    error CFA_FLOW_RATE_TOO_BIG();
+    error CFA_NON_CRITICAL_SENDER();
+    error CFA_INVALID_FLOW_RATE();
+    error CFA_NO_SELF_FLOW();
 
     /// @dev ISuperAgreement.agreementType implementation
     function agreementType() external override pure returns (bytes32) {
@@ -33,7 +52,7 @@ abstract contract IConstantFlowAgreementV1 is ISuperAgreement {
      * @dev Calculates the deposit based on the liquidationPeriod and flowRate
      * @param flowRate Flow rate to be tested
      * @return deposit The deposit amount based on flowRate and liquidationPeriod
-     * NOTE:
+     * @custom:note 
      * - if calculated deposit (flowRate * liquidationPeriod) is less
      *   than the minimum deposit, we use the minimum deposit otherwise
      *   we use the calculated deposit
@@ -163,13 +182,12 @@ abstract contract IConstantFlowAgreementV1 is ISuperAgreement {
      * @param flowRate New flow rate in amount per second
      * @param ctx Context bytes (see ISuperfluid.sol for Context struct)
      *
-     * # App callbacks
-     *
+     * @custom:callbacks 
      * - AgreementCreated
      *   - agreementId - can be used in getFlowByID
      *   - agreementData - abi.encode(address flowSender, address flowReceiver)
      *
-     * NOTE:
+     * @custom:note 
      * - A deposit is taken as safety margin for the solvency agents
      * - A extra gas fee may be taken to pay for solvency agent liquidations
      */
@@ -209,13 +227,12 @@ abstract contract IConstantFlowAgreementV1 is ISuperAgreement {
      * @param flowRate New flow rate in amount per second
      * @param ctx Context bytes (see ISuperfluid.sol for Context struct)
      *
-     * # App callbacks
-     *
+     * @custom:callbacks 
      * - AgreementUpdated
      *   - agreementId - can be used in getFlowByID
      *   - agreementData - abi.encode(address flowSender, address flowReceiver)
      *
-     * NOTE:
+     * @custom:note 
      * - Only the flow sender may update the flow rate
      * - Even if the flow rate is zero, the flow is not deleted
      * from the system
@@ -335,13 +352,12 @@ abstract contract IConstantFlowAgreementV1 is ISuperAgreement {
      * @param ctx Context bytes (see ISuperfluid.sol for Context struct)
      * @param receiver Flow receiver address
      *
-     * # App callbacks
-     *
+     * @custom:callbacks 
      * - AgreementTerminated
      *   - agreementId - can be used in getFlowByID
      *   - agreementData - abi.encode(address flowSender, address flowReceiver)
      *
-     * NOTE:
+     * @custom:note 
      * - Both flow sender and receiver may delete the flow
      * - If Sender account is insolvent or in critical state, a solvency agent may
      *   also terminate the agreement

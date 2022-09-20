@@ -41,7 +41,7 @@ if ! [ -z "$GITHUB_ENV" ];then
         BUILD_ETHEREUM_CONTRACTS=1
         BUILD_JS_SDK=1
         BUILD_SUBGRAPH=1
-        echo Ethereum contracts, JS-SDK and Subgraph will be tested.
+        echo Ethereum contracts, JS-SDK, and Subgraph will be tested.
     fi
     # if js-sdk package changed
     if grep -E "^packages/js-sdk/(src/|scripts/|test/|truffle-config.js|package.json)" changed-files.list;then
