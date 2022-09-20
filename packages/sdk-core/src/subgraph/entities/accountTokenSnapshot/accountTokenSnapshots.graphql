@@ -17,6 +17,8 @@ query accountTokenSnapshots($first: Int = 10, $skip: Int = 0, $orderBy: AccountT
             symbol
         }
         totalAmountStreamedUntilUpdatedAt
+        totalAmountStreamedInUntilUpdatedAt
+        totalAmountStreamedOutUntilUpdatedAt
         totalAmountTransferredUntilUpdatedAt
         totalInflowRate
         totalApprovedSubscriptions
@@ -27,5 +29,7 @@ query accountTokenSnapshots($first: Int = 10, $skip: Int = 0, $orderBy: AccountT
         totalSubscriptionsWithUnits
         updatedAtBlockNumber
         updatedAtTimestamp
+        maybeCriticalAtTimestamp
+        isLiquidationEstimateOptimistic
     }
 }

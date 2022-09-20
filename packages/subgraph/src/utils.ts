@@ -1,15 +1,9 @@
-import {
-    BigInt,
-    Bytes,
-    ethereum,
-    Address,
-    log,
-} from "@graphprotocol/graph-ts";
+import { Address, BigInt, Bytes, ethereum, log } from "@graphprotocol/graph-ts";
 import { ISuperToken as SuperToken } from "../generated/templates/SuperToken/ISuperToken";
 import { Resolver } from "../generated/ResolverV1/Resolver";
 import {
-    StreamRevision,
     IndexSubscription,
+    StreamRevision,
     Token,
     TokenStatistic,
 } from "../generated/schema";
@@ -17,12 +11,12 @@ import {
 /**************************************************************************
  * Constants
  *************************************************************************/
-
 export const BIG_INT_ZERO = BigInt.fromI32(0);
 export const BIG_INT_ONE = BigInt.fromI32(1);
 export const ZERO_ADDRESS = Address.zero();
 export let MAX_FLOW_RATE = BigInt.fromI32(2).pow(95).minus(BigInt.fromI32(1));
-
+export const ORDER_MULTIPLIER = BigInt.fromI32(10000);
+export const MAX_SAFE_SECONDS = BigInt.fromI64(8640000000000); //In seconds, https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date#the_ecmascript_epoch_and_timestamps
 /**************************************************************************
  * Convenience Conversions
  *************************************************************************/
@@ -51,27 +45,39 @@ export function createEventID(
  * HOL entities util functions
  *************************************************************************/
 
-export function getTokenInfoAndReturn(
+export function handleTokenRPCCalls(
     token: Token,
-    tokenAddress: Address
+    resolverAddress: Address
 ): Token {
-    let tokenContract = SuperToken.bind(tokenAddress);
-    let underlyingAddressResult = tokenContract.try_getUnderlyingToken();
-    let nameResult = tokenContract.try_name();
-    let symbolResult = tokenContract.try_symbol();
-    let decimalsResult = tokenContract.try_decimals();
+    token = getIsListedToken(token, resolverAddress);
+
+    // we must handle the case when the native token hasn't been initialized
+    // there is no name/symbol, but this may occur later
+    if (token.name.length == 0 || token.symbol.length == 0) {
+        token = getTokenInfoAndReturn(token);
+    }
+    return token;
+}
+
+export function getTokenInfoAndReturn(token: Token): Token {
+    const tokenAddress = Address.fromString(token.id);
+    const tokenContract = SuperToken.bind(tokenAddress);
+    const underlyingAddressResult = tokenContract.try_getUnderlyingToken();
+    const nameResult = tokenContract.try_name();
+    const symbolResult = tokenContract.try_symbol();
+    const decimalsResult = tokenContract.try_decimals();
     token.underlyingAddress = underlyingAddressResult.reverted
         ? ZERO_ADDRESS
         : underlyingAddressResult.value;
     token.name = nameResult.reverted ? "" : nameResult.value;
     token.symbol = symbolResult.reverted ? "" : symbolResult.value;
     token.decimals = decimalsResult.reverted ? 0 : decimalsResult.value;
+
     return token;
 }
 
 export function getIsListedToken(
     token: Token,
-    tokenAddress: Address,
     resolverAddress: Address
 ): Token {
     let resolverContract = Resolver.bind(resolverAddress);
@@ -83,8 +89,9 @@ export function getIsListedToken(
         "supertokens." + version + "." + token.symbol
     );
     let superTokenAddress = result.reverted ? ZERO_ADDRESS : result.value;
-    token.isListed = tokenAddress.toHex() == superTokenAddress.toHex();
-    return token as Token;
+    token.isListed = token.id == superTokenAddress.toHex();
+
+    return token;
 }
 
 export function updateTotalSupplyForNativeSuperToken(
@@ -246,8 +253,71 @@ export function subscriptionExists(id: string): boolean {
 export function getAmountStreamedSinceLastUpdatedAt(
     currentTime: BigInt,
     lastUpdatedTime: BigInt,
-    previousTotalOutflowRate: BigInt
+    flowRate: BigInt
 ): BigInt {
     let timeDelta = currentTime.minus(lastUpdatedTime);
-    return timeDelta.times(previousTotalOutflowRate);
+    return timeDelta.times(flowRate);
+}
+
+/**
+ * calculateMaybeCriticalAtTimestamp will return optimistic date based on updatedAtTimestamp, balanceUntilUpdatedAt and totalNetFlowRate.
+ * @param updatedAtTimestamp
+ * @param balanceUntilUpdatedAt
+ * @param totalNetFlowRate
+ * @param previousMaybeCriticalAtTimestamp
+ */
+
+export function calculateMaybeCriticalAtTimestamp(
+    updatedAtTimestamp: BigInt,
+    balanceUntilUpdatedAt: BigInt,
+    totalNetFlowRate: BigInt,
+    previousMaybeCriticalAtTimestamp: BigInt | null
+): BigInt | null {
+    // When the flow rate is not negative then there's no way to have a critical balance timestamp anymore.
+    if (totalNetFlowRate.ge(BIG_INT_ZERO)) return null;
+
+    // When there's no balance then that either means:
+    // 1. account is already critical, and we keep the existing timestamp when the liquidations supposedly started
+    // 2. it's a new account without a critical balance timestamp to begin with
+    if (balanceUntilUpdatedAt.le(BIG_INT_ZERO))
+        return previousMaybeCriticalAtTimestamp;
+
+    const secondsUntilCritical = balanceUntilUpdatedAt.div(
+        totalNetFlowRate.abs()
+    );
+    const calculatedCriticalTimestamp =
+        updatedAtTimestamp.plus(secondsUntilCritical);
+    if (calculatedCriticalTimestamp.gt(MAX_SAFE_SECONDS)) {
+        return MAX_SAFE_SECONDS;
+    }
+    return calculatedCriticalTimestamp;
+}
+
+/**
+ * getOrder calculate order based on {blockNumber.times(10000).plus(logIndex)}.
+ * @param blockNumber
+ * @param logIndex
+ */
+export function getOrder(blockNumber: BigInt, logIndex: BigInt): BigInt {
+    return blockNumber.times(ORDER_MULTIPLIER).plus(logIndex);
+}
+
+/**************************************************************************
+ * Log entities util functions
+ *************************************************************************/
+
+export function createLogID(
+    logPrefix: string,
+    accountTokenSnapshotId: string,
+    event: ethereum.Event
+): string {
+    return (
+        logPrefix +
+        "-" +
+        accountTokenSnapshotId +
+        "-" +
+        event.transaction.hash.toHexString() +
+        "-" +
+        event.logIndex.toString()
+    );
 }
