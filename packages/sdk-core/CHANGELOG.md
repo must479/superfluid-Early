@@ -5,6 +5,59 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.0] - 2022-07-14
+
+## Added
+- Support for SetEvent and Subgraph v1.4.4
+- `Framework.operation` method for easily creating `Operation` instances
+
+## Fixes
+- Compile AJV validations to prevent unsafe-eval and did not allow SDK-Core usage inside Google Chrome extension due to unsafe-eval CSP
+
+### Changed
+- `SFError` refactor to be more conventional. It inherits `Error` and uses `cause` to wrap internal errors.
+- Use `serialize-error` for serializing error object inside the message.
+- Export Operation & OperationType
+
+### Breaking
+- `SFError.errorObject` renamed to `SFError.cause`
+
+## [0.4.4] - 2022-06-30
+
+## Added
+- Support for new event properties for Subgraph v1.4.1
+
+### Breaking
+- Subgraph Query: `rewardAccount` renamed to `rewardAmountReceiver` on `AgreementLiquidatedV2Event` entity
+- `chainId` is a required property for framework initialization
+- `networkId` and `dataMode` no longer exist as properties for framework initialization
+
+## [0.4.3] - 2022-06-29
+
+### Added
+- BNB Chain support added
+
+### Changed
+- `maybeCriticalAtTimestamp` is a nullable property now
+
+## [0.4.2] - 2022-05-17
+
+### Added
+- `QueryHandler` for transfer events
+
+## [0.4.2] - 2022-05-17
+
+### Fixed
+- Patched SDK-Core Subgraph files to be in sync with V1 Subgraph endpoint
+
+## [0.4.1] - 2022-05-14
+
+### Added
+- Avalanche Network Support
+
+### Changed
+- Network constants consistent with canonical Superfluid name
+
 ## [0.4.0] - 2022-05-06
 
 ### Added
@@ -36,7 +89,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The `SuperToken` class is now an abstract base class and no longer contains the functions `upgrade` and `downgrade`.
 - `underlyingToken` is possibly undefined on `SuperToken`: `WrapperSuperToken` has `underlyingToken`, but `PureSuperToken` and `NativeAssetSuperToken` do not.
 > NOTE: These changes are due to the split of `SuperToken` into `WrapperSuperToken`, `PureSuperToken` and `NativeAssetSuperToken` classes.
-  - Migration: 
+  - Migration:
       - if you are unsure of the type of the super token, you can use: `await framework.loadSuperToken("0x...");`
       - if you want to load a wrapper super token, use: `await framework.loadWrapperSuperToken("DAIx");`
       - if you want to load a native asset super token, use: `await framework.loadNativeAssetSuperToken("ETHx");`
@@ -58,7 +111,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Typo for `networkName: "arbitrum-rinkeby"` fixed (was expecting `"arbitrium-rinkeby"`) in `Framework.create` ([#637])
 
 ### Breaking
-- Using `"xdai"` as the `networkName` will no longer work. Updated to `"gnosis"` 
+- Using `"xdai"` as the `networkName` will no longer work. Updated to `"gnosis"`
   - Migration: change `networkName` from `"xdai"` to `"gnosis"`
 
 ## [0.3.0] - 2022-02-02
@@ -116,7 +169,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - New `SuperToken` class with `SuperToken` CRUD functionality and an underlying `Token` class with basic `ERC20` functionality
   - New `BatchCall` class for creating and executing batch calls with supported `Operation's`
 
-[Unreleased]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.3.2...HEAD
+[Unreleased]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.5.0...HEAD
+[0.5.0]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.4.4...sdk-core%40v0.5.0
+[0.4.4]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.4.3...sdk-core%40v0.4.4
+[0.4.3]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.4.2...sdk-core%40v0.4.3
+[0.4.2]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.4.1...sdk-core%40v0.4.2
+[0.4.1]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.4.0...sdk-core%40v0.4.1
+[0.4.0]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.3.2...sdk-core%40v0.4.0
 [0.3.2]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.3.1...sdk-core%40v0.3.2
 [0.3.1]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.3.0...sdk-core%40v0.3.1
 [0.3.0]: https://github.com/superfluid-finance/protocol-monorepo/compare/sdk-core%40v0.2.1...sdk-core%40v0.3.0

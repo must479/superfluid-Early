@@ -67,9 +67,8 @@ before(async function () {
 
     //initialize the superfluid framework...put custom and web3 only bc we are using hardhat locally
     sf = await Framework.create({
-        networkName: "custom",
+        chainId: 31337,
         provider,
-        dataMode: "WEB3_ONLY",
         resolverAddress: process.env.RESOLVER_ADDRESS, //this is how you get the resolver address
         protocolReleaseVersion: "test",
     });    
@@ -195,8 +194,6 @@ describe("employment loan deployment", async function () {
         Borrow Amount: ${await employmentLoan.borrowAmount()}
         Employer: ${await employmentLoan.employer()}
         Borrower: ${await employmentLoan.borrower()}
-        Superfluid Host: ${await employmentLoan.host()}
-        Superfluid CFA: ${await employmentLoan.cfa()}
         `
         );
 
@@ -267,12 +264,6 @@ describe("employment loan deployment", async function () {
         
         });
 
-        // it("1.1 - Should fail if called by outsider", async () => {
-        //     await expectRevert(
-        //         employmentLoan.connect(outsider).sendCollateral(), "only b"
-        //     )
-        // });
-
         it("2 First flow into contract works correctly", async () => {
             
             let loanContractBalance = await colx.balanceOf({account: employmentLoan.address, providerOrSigner: borrower});
@@ -308,10 +299,6 @@ describe("employment loan deployment", async function () {
             console.log("employer flow into contract",employerNetFlowRate);
             console.log("borrower flow from contract", borrowerNetFlowRate);
             console.log("contract net flow rate", contractNetFlowRate);
-
-
-            // let employerFlowRateStatus = await employmentLoan.checkEmployerFlowRate();
-            // console.log("employer flow rate status", employerFlowRateStatus);
 
             assert.equal(
                 employerNetFlowRate, -3215019290123456
